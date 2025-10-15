@@ -1,0 +1,36 @@
+{
+  "expo": {
+    "name": "Fitness Companion",
+    "slug": "fitness-companion",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "main": "index.js",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fitness.companion"
+    },
+    "android": {
+      "package": "com.fitness.companion",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Fitness Companion to access your camera for pose detection."
+        }
+      ]
+    ]
+  }
+}
