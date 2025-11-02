@@ -66,11 +66,23 @@ class LLMService:
         if recent_sessions:
             context_parts.append("\nRecent Workouts:")
             for session in recent_sessions:
-                context_parts.append(
-                    f"- {session.completed_at.strftime('%Y-%m-%d')}: "
-                    f"{session.duration_minutes} min, "
-                    f"{session.calories_burned or 0} cal"
-                )
+                workout_info = f"- {session.completed_at.strftime('%Y-%m-%d')}: "
+                workout_info += f"{session.duration_minutes} min"
+                
+                if session.calories_burned:
+                    workout_info += f", {session.calories_burned} cal"
+                
+                # Add exercises if available
+                if session.exercises_completed:
+                    exercise_names = [ex.get('name', '') for ex in session.exercises_completed if ex.get('name')]
+                    if exercise_names:
+                        workout_info += f" - Exercises: {', '.join(exercise_names)}"
+                
+                # Add notes if available
+                if session.notes:
+                    workout_info += f" (Notes: {session.notes[:50]}{'...' if len(session.notes) > 50 else ''})"
+                
+                context_parts.append(workout_info)
         
         # Active habits
         active_habits = Habit.query.filter_by(user_id=user_id, is_active=True).all()
@@ -82,17 +94,16 @@ class LLMService:
                     f"{habit.total_completions} total completions"
                 )
         
-        # Conversation history (if session_id provided)
-        if session_id:
-            history = LLMConversation.query.filter_by(user_id=user_id, session_id=session_id)\
-                .order_by(LLMConversation.timestamp.desc())\
-                .limit(current_app.config['MAX_CONVERSATION_HISTORY'])\
-                .all()
-            
-            if history:
-                context_parts.append("\nRecent Conversation:")
-                for msg in reversed(history):
-                    context_parts.append(f"{msg.role}: {msg.content}")
+        # Conversation history - load from ALL sessions for continuity
+        history = LLMConversation.query.filter_by(user_id=user_id)\
+            .order_by(LLMConversation.timestamp.desc())\
+            .limit(current_app.config['MAX_CONVERSATION_HISTORY'])\
+            .all()
+        
+        if history:
+            context_parts.append("\nRecent Conversation:")
+            for msg in reversed(history):
+                context_parts.append(f"{msg.role}: {msg.content}")
         
         return "\n".join(context_parts)
     
@@ -112,8 +123,10 @@ Your role is to:
 - Help users maintain healthy habits and track progress
 - Encourage users while being realistic about fitness goals
 - Answer questions about exercise form, nutrition, and fitness
+- REMEMBER and reference information from the "Recent Conversation" section below
+- If the user has told you their height, weight, or other personal info in recent messages, USE that information
 
-Be supportive, positive, and concise in your responses. Use the user's context to personalize your advice."""
+Be supportive, positive, and concise in your responses. Use the user's context and conversation history to personalize your advice."""
         
         # Construct full prompt
         full_prompt = f"{system_prompt}\n\n{context}\n\nUser: {user_message}\n\nAssistant:"

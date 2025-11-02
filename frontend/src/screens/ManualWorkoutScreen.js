@@ -9,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { workoutsAPI } from '../services/api';
+import { validateExercise, validateNumber, sanitizeText } from '../utils/validation';
 
 export default function ManualWorkoutScreen({ navigation }) {
   const [exercises, setExercises] = useState([
@@ -16,6 +17,9 @@ export default function ManualWorkoutScreen({ navigation }) {
   ]);
   const [notes, setNotes] = useState('');
   const [duration, setDuration] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   const addExercise = () => {
     setExercises([
@@ -36,58 +40,106 @@ export default function ManualWorkoutScreen({ navigation }) {
   };
 
   const saveWorkout = async () => {
+    if (saving) return; // Prevent double submission
+    
     const completedExercises = exercises.filter(
       (e) => e.name && (e.sets || e.reps)
     );
 
     if (completedExercises.length === 0) {
-      if (typeof window !== 'undefined') {
-        window.alert('Please add at least one exercise');
-      } else {
-        Alert.alert('Error', 'Please add at least one exercise');
-      }
+      setErrorMessage('❌ Please add at least one exercise');
+      setTimeout(() => setErrorMessage(''), 3000);
       return;
     }
 
+    // Validate all exercises
+    const errors = [];
+    completedExercises.forEach((exercise, index) => {
+      const validation = validateExercise(exercise);
+      if (!validation.valid) {
+        errors.push(`Exercise ${index + 1}: ${Object.values(validation.errors).join(', ')}`);
+      }
+    });
+
+    if (errors.length > 0) {
+      setErrorMessage('❌ ' + errors.join('\n'));
+      setTimeout(() => setErrorMessage(''), 5000);
+      return;
+    }
+
+    // Validate duration
+    if (duration) {
+      const durationValidation = validateNumber(duration, 'Duration', 1, 600);
+      if (!durationValidation.valid) {
+        setErrorMessage('❌ ' + durationValidation.error);
+        setTimeout(() => setErrorMessage(''), 3000);
+        return;
+      }
+    }
+
+    setSaving(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+    
     try {
       await workoutsAPI.createSession({
         session_type: 'manual',
         completed_at: new Date().toISOString(),
         duration_minutes: parseInt(duration) || 0,
         exercises_completed: completedExercises.map((e) => ({
-          name: e.name,
+          name: sanitizeText(e.name),
           sets: parseInt(e.sets) || 0,
           reps: parseInt(e.reps) || 0,
         })),
-        notes,
+        notes: sanitizeText(notes),
       });
 
-      if (typeof window !== 'undefined') {
-        window.alert('Workout saved successfully! 💪');
+      setSuccessMessage('✅ Workout saved successfully! Redirecting...');
+      
+      // Clear form and redirect after 1.5 seconds
+      setTimeout(() => {
         navigation.goBack();
-      } else {
-        Alert.alert('Success', 'Workout saved successfully! 💪', [
-          { text: 'OK', onPress: () => navigation.goBack() },
-        ]);
-      }
+      }, 1500);
     } catch (error) {
       console.error('Save workout error:', error);
-      if (typeof window !== 'undefined') {
-        window.alert('Could not save workout. Please try again.');
+      
+      // Show backend validation errors if available
+      if (error.response?.data?.details) {
+        const errorMessages = Object.values(error.response.data.details).join('\n');
+        setErrorMessage('❌ ' + errorMessages);
       } else {
-        Alert.alert('Error', 'Could not save workout. Please try again.');
+        setErrorMessage('❌ Could not save workout. Please try again.');
       }
+      setSaving(false);
     }
   };
 
   return (
-    <ScrollView style={styles.container}>
+    <View style={styles.container}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={true}
+      >
       <View style={styles.header}>
         <Text style={styles.title}>✏️ Log Workout</Text>
         <Text style={styles.subtitle}>
           Track your progress without camera
         </Text>
       </View>
+
+      {successMessage ? (
+        <View style={styles.successBox}>
+          <Text style={styles.successText}>{successMessage}</Text>
+        </View>
+      ) : null}
+
+      {errorMessage ? (
+        <View style={styles.errorBox}>
+          <Text style={styles.errorText}>{errorMessage}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Exercises</Text>
         {exercises.map((exercise, index) => (
@@ -147,10 +199,17 @@ export default function ManualWorkoutScreen({ navigation }) {
           onChangeText={setNotes}
         />
       </View>
-      <TouchableOpacity style={styles.saveButton} onPress={saveWorkout}>
-        <Text style={styles.saveButtonText}>Save Workout</Text>
+      <TouchableOpacity 
+        style={[styles.saveButton, saving && styles.saveButtonDisabled]} 
+        onPress={saveWorkout}
+        disabled={saving}
+      >
+        <Text style={styles.saveButtonText}>
+          {saving ? 'Saving...' : 'Save Workout'}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
+    </View>
   );
 }
 
@@ -158,6 +217,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 100,
   },
   header: {
     backgroundColor: '#2196F3',
@@ -242,9 +308,43 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
   },
+  saveButtonDisabled: {
+    backgroundColor: '#9E9E9E',
+    opacity: 0.6,
+  },
   saveButtonText: {
     color: '#fff',
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  successBox: {
+    backgroundColor: '#d4edda',
+    borderColor: '#c3e6cb',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 15,
+    margin: 15,
+    marginTop: 10,
+  },
+  successText: {
+    color: '#155724',
+    fontSize: 15,
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  errorBox: {
+    backgroundColor: '#f8d7da',
+    borderColor: '#f5c6cb',
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 15,
+    margin: 15,
+    marginTop: 10,
+  },
+  errorText: {
+    color: '#721c24',
+    fontSize: 15,
+    textAlign: 'center',
+    fontWeight: '500',
   },
 });

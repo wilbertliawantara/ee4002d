@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models import Habit, WorkoutSession
+from app.utils import validate_habit, ValidationError
 from datetime import datetime, timedelta
 
 bp = Blueprint('habits', __name__)
@@ -33,8 +34,13 @@ def create_habit():
     current_user_id = int(get_jwt_identity())
     data = request.get_json()
     
-    if not data or not data.get('name'):
-        return jsonify({'error': 'Missing required fields'}), 400
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    # Validate input
+    validated, errors = validate_habit(data)
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 400
     
     # Calculate first reminder time
     next_reminder = None
@@ -44,9 +50,9 @@ def create_habit():
     habit = Habit(
         user_id=current_user_id,
         routine_id=data.get('routine_id'),
-        name=data['name'],
-        frequency=data.get('frequency', 'weekly'),
-        schedule=data.get('schedule', {}),
+        name=validated['name'],
+        frequency=validated.get('frequency', 'weekly'),
+        schedule=validated.get('schedule', {}),
         next_reminder_at=next_reminder
     )
     
@@ -71,15 +77,23 @@ def update_habit(habit_id):
     
     data = request.get_json()
     
-    if 'name' in data:
-        habit.name = data['name']
-    if 'frequency' in data:
-        habit.frequency = data['frequency']
-    if 'schedule' in data:
-        habit.schedule = data['schedule']
-        habit.next_reminder_at = calculate_next_reminder(data['schedule'])
-    if 'is_active' in data:
-        habit.is_active = data['is_active']
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    # Validate input
+    validated, errors = validate_habit(data, is_update=True)
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 400
+    
+    if 'name' in validated:
+        habit.name = validated['name']
+    if 'frequency' in validated:
+        habit.frequency = validated['frequency']
+    if 'schedule' in validated:
+        habit.schedule = validated['schedule']
+        habit.next_reminder_at = calculate_next_reminder(validated['schedule'])
+    if 'is_active' in validated:
+        habit.is_active = validated['is_active']
     
     db.session.commit()
     

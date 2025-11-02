@@ -11,6 +11,7 @@ import ChatScreen from './src/screens/ChatScreen';
 import CameraWorkoutScreen from './src/screens/CameraWorkoutScreen';
 import ManualWorkoutScreen from './src/screens/ManualWorkoutScreen';
 import HabitsScreen from './src/screens/HabitsScreen';
+import WorkoutHistoryScreen from './src/screens/WorkoutHistoryScreen';
 
 const Stack = createStackNavigator();
 
@@ -119,6 +120,14 @@ export default function App() {
                 options={{
                   title: 'Habit Tracker',
                   headerStyle: { backgroundColor: '#9C27B0' },
+                }}
+              />
+              <Stack.Screen
+                name="WorkoutHistory"
+                component={WorkoutHistoryScreen}
+                options={{
+                  title: 'Workout History',
+                  headerStyle: { backgroundColor: '#2196F3' },
                 }}
               />
             </>

@@ -3,12 +3,27 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
 from flask_cors import CORS
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from config import config
 
 # Initialize extensions
 db = SQLAlchemy()
 migrate = Migrate()
 jwt = JWTManager()
+
+# Custom function to skip rate limiting for OPTIONS requests
+def get_remote_address_skip_options():
+    from flask import request
+    if request.method == 'OPTIONS':
+        return None  # Skip rate limiting for OPTIONS
+    return get_remote_address()
+
+limiter = Limiter(
+    key_func=get_remote_address_skip_options,  # Rate limit by IP, but skip OPTIONS
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",  # Use in-memory storage (for development)
+)
 
 
 def create_app(config_name='development'):
@@ -22,6 +37,16 @@ def create_app(config_name='development'):
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
+    limiter.init_app(app)
+    
+    # Rate limit error handler
+    @app.errorhandler(429)
+    def ratelimit_handler(e):
+        return jsonify({
+            'error': 'Rate limit exceeded',
+            'message': 'Too many requests. Please try again later.',
+            'retry_after': e.description
+        }), 429
     
     # JWT error handlers
     @jwt.expired_token_loader

@@ -10,6 +10,7 @@ import {
   Modal,
 } from 'react-native';
 import { habitsAPI } from '../services/api';
+import { useFocusEffect } from '@react-navigation/native';
 
 export default function HabitsScreen() {
   const [habits, setHabits] = useState([]);
@@ -17,9 +18,12 @@ export default function HabitsScreen() {
   const [newHabitName, setNewHabitName] = useState('');
   const [frequency, setFrequency] = useState('weekly');
 
-  useEffect(() => {
-    loadHabits();
-  }, []);
+  // Refresh habits every time screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      loadHabits();
+    }, [])
+  );
 
   const loadHabits = async () => {
     try {
@@ -110,7 +114,7 @@ export default function HabitsScreen() {
       </View>
 
       <ScrollView 
-        style={styles.content}
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={true}
       >
@@ -269,12 +273,13 @@ const styles = StyleSheet.create({
     color: '#fff',
     opacity: 0.9,
   },
-  content: {
+  scrollView: {
     flex: 1,
-    padding: 15,
   },
   scrollContent: {
-    paddingBottom: 100, // Space for FAB and bottom navigation
+    flexGrow: 1,
+    padding: 15,
+    paddingBottom: 100,
   },
   emptyState: {
     alignItems: 'center',

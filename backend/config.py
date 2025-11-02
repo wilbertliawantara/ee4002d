@@ -27,7 +27,7 @@ class Config:
     
     # LLM Configuration - Google Gemini (FREE 1500 req/day)
     GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY') or 'your-gemini-api-key-here'
-    GEMINI_MODEL = 'gemini-1.5-flash'  # Free tier model - use v1 API
+    GEMINI_MODEL = 'gemini-1.5-flash-8b'  # Faster model - 30-50% quicker responses
     
     # Fallback: Ollama for completely free local LLM (optional)
     OLLAMA_BASE_URL = os.environ.get('OLLAMA_BASE_URL') or 'http://localhost:11434'
@@ -52,6 +52,13 @@ class Config:
     
     # CORS (for React Native frontend)
     CORS_ORIGINS = os.environ.get('CORS_ORIGINS', '*').split(',')
+    
+    # Rate Limiting (prevent brute force attacks)
+    RATELIMIT_ENABLED = True
+    RATELIMIT_STORAGE_URI = os.environ.get('RATELIMIT_STORAGE_URI', 'memory://')
+    RATELIMIT_STRATEGY = 'fixed-window'  # or 'moving-window'
+    RATELIMIT_DEFAULT = os.environ.get('RATELIMIT_DEFAULT', '200 per day, 50 per hour')
+    RATELIMIT_HEADERS_ENABLED = True  # Send rate limit info in response headers
 
 
 class DevelopmentConfig(Config):
@@ -63,9 +70,21 @@ class DevelopmentConfig(Config):
 class ProductionConfig(Config):
     """Production configuration - Still free/cheap"""
     DEBUG = False
-    # Use environment variables for production
-    # Example: DATABASE_URL from Supabase/Neon (free tier)
     SQLALCHEMY_ECHO = False
+    
+    # SECURITY: Require environment variables in production
+    def __init__(self):
+        super().__init__()
+        
+        # Check that critical secrets are set
+        if not os.environ.get('SECRET_KEY'):
+            raise ValueError("SECRET_KEY environment variable must be set in production!")
+        
+        if not os.environ.get('JWT_SECRET_KEY'):
+            raise ValueError("JWT_SECRET_KEY environment variable must be set in production!")
+        
+        if not os.environ.get('DATABASE_URL'):
+            raise ValueError("DATABASE_URL environment variable must be set in production!")
 
 
 class TestingConfig(Config):

@@ -1,0 +1,16 @@
+/* Web-specific styles for scrolling */
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  overflow-y: auto;
+}
+
+/* Ensure ScrollView works properly on web */
+div[data-focusable="true"] {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}

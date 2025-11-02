@@ -211,6 +211,5 @@ class LLMConversation(db.Model):
             'id': self.id,
             'role': self.role,
             'content': self.content,
-            'timestamp': self.timestamp.isoformat(),
-            'model': self.model
+            'timestamp': self.timestamp.isoformat()
         }

@@ -1,19 +1,15 @@
 /**
  * API Service - Handles all backend communication
- * Backend: Flask REST API at http://localhost:5000
+ * Backend: Flask REST API
  */
 
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-// API Configuration
-const API_BASE_URL = 'http://localhost:5000/api';  // Change for production
-// For Android emulator: http://10.0.2.2:5000/api
-// For iOS simulator: http://localhost:5000/api
-// For physical device: http://YOUR_COMPUTER_IP:5000/api
+import config from '../config';
 
 const api = axios.create({
-  baseURL: API_BASE_URL,
+  baseURL: config.API_BASE_URL,
+  timeout: config.TIMEOUT,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -37,12 +33,14 @@ api.interceptors.response.use(
   async (error) => {
     const originalRequest = error.config;
 
-    if (error.response?.status === 401 && !originalRequest._retry) {
+    // Handle token errors (401 Unauthorized or 422 Invalid Token)
+    if ((error.response?.status === 401 || error.response?.status === 422) && !originalRequest._retry) {
       originalRequest._retry = true;
 
       try {
         const refreshToken = await AsyncStorage.getItem('refresh_token');
-        const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {}, {
+        const baseURL = config.API_BASE_URL.replace('/api', ''); // Remove /api for auth endpoint
+        const response = await axios.post(`${baseURL}/api/auth/refresh`, {}, {
           headers: { Authorization: `Bearer ${refreshToken}` },
         });
 
@@ -52,8 +50,16 @@ api.interceptors.response.use(
         originalRequest.headers.Authorization = `Bearer ${access_token}`;
         return api(originalRequest);
       } catch (refreshError) {
+        // Token refresh failed - clear everything
         await AsyncStorage.multiRemove(['access_token', 'refresh_token', 'user']);
-        return Promise.reject(refreshError);
+        
+        // Add error message for user
+        const tokenError = new Error('Session expired. Please login again.');
+        tokenError.response = { 
+          status: 401, 
+          data: { error: 'Session expired. Please login again.' } 
+        };
+        return Promise.reject(tokenError);
       }
     }
 
@@ -98,6 +104,15 @@ export const authAPI = {
     await AsyncStorage.setItem('user', JSON.stringify(response.data.user));
     return response.data.user;
   },
+
+  resetPassword: async (email, username, newPassword) => {
+    const response = await api.post('/auth/reset-password', {
+      email,
+      username,
+      new_password: newPassword,
+    });
+    return response.data;
+  },
 };
 
 // Workouts API
@@ -140,6 +155,11 @@ export const workoutsAPI = {
   updateSession: async (id, data) => {
     const response = await api.put(`/workouts/sessions/${id}`, data);
     return response.data.session;
+  },
+
+  deleteSession: async (id) => {
+    const response = await api.delete(`/workouts/sessions/${id}`);
+    return response.data;
   },
 
   getStats: async () => {

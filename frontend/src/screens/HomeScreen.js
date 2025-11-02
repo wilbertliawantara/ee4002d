@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { workoutsAPI, llmAPI, habitsAPI } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 
 export default function HomeScreen({ navigation }) {
   const [user, setUser] = useState(null);
@@ -19,10 +20,18 @@ export default function HomeScreen({ navigation }) {
   const [motivation, setMotivation] = useState('');
   const [habits, setHabits] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState({
+    stats: true,
+    motivation: true,
+    habits: true
+  });
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  // Refresh data every time screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      loadData();
+    }, [])
+  );
 
   const loadData = async () => {
     try {
@@ -31,15 +40,50 @@ export default function HomeScreen({ navigation }) {
         setUser(JSON.parse(userData));
       }
 
-      const [statsData, motivationData, habitsData] = await Promise.all([
+      // Load fast data first (stats and habits)
+      Promise.all([
         workoutsAPI.getStats(),
-        llmAPI.getMotivation(),
         habitsAPI.getHabits(true),
-      ]);
+      ]).then(([statsData, habitsData]) => {
+        setStats(statsData);
+        setHabits(habitsData);
+        setLoading(prev => ({ ...prev, stats: false, habits: false }));
+      }).catch(error => {
+        console.error('Error loading stats/habits:', error);
+        setLoading(prev => ({ ...prev, stats: false, habits: false }));
+        
+        // Check for authentication errors
+        if (error.response?.status === 401 || error.response?.status === 422) {
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please login again.',
+            [
+              {
+                text: 'OK',
+                onPress: async () => {
+                  await AsyncStorage.multiRemove(['access_token', 'refresh_token', 'user']);
+                  navigation.reset({
+                    index: 0,
+                    routes: [{ name: 'Login' }],
+                  });
+                },
+              },
+            ]
+          );
+        }
+      });
 
-      setStats(statsData);
-      setMotivation(motivationData);
-      setHabits(habitsData);
+      // Load slow AI data separately (doesn't block UI)
+      llmAPI.getMotivation()
+        .then(motivationData => {
+          setMotivation(motivationData);
+          setLoading(prev => ({ ...prev, motivation: false }));
+        })
+        .catch(error => {
+          console.error('Error loading motivation:', error);
+          setMotivation('Stay consistent! Every workout counts. 💪');
+          setLoading(prev => ({ ...prev, motivation: false }));
+        });
     } catch (error) {
       console.error('Error loading data:', error);
     }
@@ -67,16 +111,8 @@ export default function HomeScreen({ navigation }) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        style={styles.scrollView}
-        showsVerticalScrollIndicator={true}
-        nestedScrollEnabled={true}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
+    <View style={styles.container}>
+      <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
           <Text style={styles.greeting}>
             Hello, {user?.name || user?.username || 'Athlete'}! 👋
@@ -86,18 +122,35 @@ export default function HomeScreen({ navigation }) {
           </Text>
         </View>
 
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={true}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          }
+        >
         {/* Motivation Card */}
-        {motivation && (
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>💡 Daily Motivation</Text>
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>💡 Daily Motivation</Text>
+          {loading.motivation ? (
+            <View style={styles.loadingSkeleton}>
+              <Text style={styles.loadingText}>Loading your daily motivation...</Text>
+            </View>
+          ) : (
             <Text style={styles.motivationText}>{motivation}</Text>
-          </View>
-        )}
+          )}
+        </View>
 
         {/* Stats */}
         {stats && (
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>📊 Your Progress</Text>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>📊 Your Progress</Text>
+              <TouchableOpacity onPress={() => navigation.navigate('WorkoutHistory')}>
+                <Text style={styles.viewAllText}>View All →</Text>
+              </TouchableOpacity>
+            </View>
             <View style={styles.statsGrid}>
             <View style={styles.statItem}>
               <Text style={styles.statValue}>{stats.completed_sessions}</Text>
@@ -174,7 +227,8 @@ export default function HomeScreen({ navigation }) {
           </TouchableOpacity>
         </View>
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -182,30 +236,21 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f5f5f5',
-    ...(Platform.OS === 'web' && {
-      height: '100vh',
-      overflow: 'hidden',
-    }),
+  },
+  safeArea: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,
-    ...(Platform.OS === 'web' && {
-      overflow: 'auto',
-      overflowY: 'scroll',
-      WebkitOverflowScrolling: 'touch',
-    }),
   },
   scrollContent: {
+    flexGrow: 1,
     padding: 16,
-    paddingBottom: 150,
-    ...(Platform.OS === 'web' && {
-      minHeight: '120%',
-    }),
+    paddingBottom: 100,
   },
   header: {
     backgroundColor: '#4CAF50',
     padding: 20,
-    paddingTop: 60,
   },
   greeting: {
     fontSize: 24,
@@ -220,7 +265,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: '#fff',
-    margin: 15,
+    marginBottom: 15,
     padding: 15,
     borderRadius: 10,
     shadowColor: '#000',
@@ -229,11 +274,31 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
   },
+  cardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
   cardTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    marginBottom: 15,
     color: '#333',
+  },
+  viewAllText: {
+    fontSize: 14,
+    color: '#4CAF50',
+    fontWeight: '500',
+  },
+  loadingSkeleton: {
+    padding: 15,
+    backgroundColor: '#f0f0f0',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#999',
+    fontStyle: 'italic',
   },
   motivationText: {
     fontSize: 16,

@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models import WorkoutRoutine, WorkoutSession
+from app.utils import validate_workout_routine, validate_workout_session, ValidationError
 from datetime import datetime
 
 bp = Blueprint('workouts', __name__)
@@ -26,17 +27,22 @@ def create_routine():
     current_user_id = int(get_jwt_identity())
     data = request.get_json()
     
-    if not data or not data.get('name'):
-        return jsonify({'error': 'Missing required fields'}), 400
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    # Validate input
+    validated, errors = validate_workout_routine(data)
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 400
     
     routine = WorkoutRoutine(
         user_id=current_user_id,
-        name=data['name'],
-        description=data.get('description', ''),
-        exercises=data.get('exercises', []),
-        difficulty=data.get('difficulty', 'medium'),
-        estimated_duration_minutes=data.get('estimated_duration_minutes', 30),
-        is_camera_based=data.get('is_camera_based', False)
+        name=validated['name'],
+        description=validated.get('description', ''),
+        exercises=validated.get('exercises', []),
+        difficulty=validated.get('difficulty', 'medium'),
+        estimated_duration_minutes=validated.get('estimated_duration_minutes', 30),
+        is_camera_based=validated.get('is_camera_based', False)
     )
     
     db.session.add(routine)
@@ -73,19 +79,27 @@ def update_routine(routine_id):
     
     data = request.get_json()
     
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    # Validate input
+    validated, errors = validate_workout_routine(data, is_update=True)
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 400
+    
     # Update fields
-    if 'name' in data:
-        routine.name = data['name']
-    if 'description' in data:
-        routine.description = data['description']
-    if 'exercises' in data:
-        routine.exercises = data['exercises']
-    if 'difficulty' in data:
-        routine.difficulty = data['difficulty']
-    if 'estimated_duration_minutes' in data:
-        routine.estimated_duration_minutes = data['estimated_duration_minutes']
-    if 'is_camera_based' in data:
-        routine.is_camera_based = data['is_camera_based']
+    if 'name' in validated:
+        routine.name = validated['name']
+    if 'description' in validated:
+        routine.description = validated['description']
+    if 'exercises' in validated:
+        routine.exercises = validated['exercises']
+    if 'difficulty' in validated:
+        routine.difficulty = validated['difficulty']
+    if 'estimated_duration_minutes' in validated:
+        routine.estimated_duration_minutes = validated['estimated_duration_minutes']
+    if 'is_camera_based' in validated:
+        routine.is_camera_based = validated['is_camera_based']
     
     routine.updated_at = datetime.utcnow()
     db.session.commit()
@@ -138,19 +152,24 @@ def create_session():
     current_user_id = int(get_jwt_identity())
     data = request.get_json()
     
-    if not data or not data.get('session_type'):
-        return jsonify({'error': 'Missing required fields'}), 400
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    # Validate input
+    validated, errors = validate_workout_session(data)
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 400
     
     session = WorkoutSession(
         user_id=current_user_id,
         routine_id=data.get('routine_id'),
-        session_type=data['session_type'],
-        started_at=datetime.fromisoformat(data['started_at']) if data.get('started_at') else datetime.utcnow(),
-        completed_at=datetime.fromisoformat(data['completed_at']) if data.get('completed_at') else None,
-        duration_minutes=data.get('duration_minutes'),
-        exercises_completed=data.get('exercises_completed', []),
-        calories_burned=data.get('calories_burned'),
-        notes=data.get('notes', '')
+        session_type=validated['session_type'],
+        started_at=validated.get('started_at', datetime.utcnow()),
+        completed_at=validated.get('completed_at'),
+        duration_minutes=validated.get('duration_minutes'),
+        exercises_completed=validated.get('exercises_completed', []),
+        calories_burned=validated.get('calories_burned'),
+        notes=validated.get('notes', '')
     )
     
     db.session.add(session)
@@ -174,17 +193,25 @@ def update_session(session_id):
     
     data = request.get_json()
     
+    if not data:
+        return jsonify({'error': 'No data provided'}), 400
+    
+    # Validate input
+    validated, errors = validate_workout_session(data, is_update=True)
+    if errors:
+        return jsonify({'error': 'Validation failed', 'details': errors}), 400
+    
     # Update fields
-    if 'completed_at' in data:
-        session.completed_at = datetime.fromisoformat(data['completed_at']) if data['completed_at'] else None
-    if 'duration_minutes' in data:
-        session.duration_minutes = data['duration_minutes']
-    if 'exercises_completed' in data:
-        session.exercises_completed = data['exercises_completed']
-    if 'calories_burned' in data:
-        session.calories_burned = data['calories_burned']
-    if 'notes' in data:
-        session.notes = data['notes']
+    if 'completed_at' in validated:
+        session.completed_at = validated['completed_at']
+    if 'duration_minutes' in validated:
+        session.duration_minutes = validated['duration_minutes']
+    if 'exercises_completed' in validated:
+        session.exercises_completed = validated['exercises_completed']
+    if 'calories_burned' in validated:
+        session.calories_burned = validated['calories_burned']
+    if 'notes' in validated:
+        session.notes = validated['notes']
     
     db.session.commit()
     
@@ -192,6 +219,22 @@ def update_session(session_id):
         'message': 'Session updated successfully',
         'session': session.to_dict()
     }), 200
+
+
+@bp.route('/sessions/<int:session_id>', methods=['DELETE'])
+@jwt_required()
+def delete_session(session_id):
+    """Delete a workout session"""
+    current_user_id = int(get_jwt_identity())
+    session = WorkoutSession.query.filter_by(id=session_id, user_id=current_user_id).first()
+    
+    if not session:
+        return jsonify({'error': 'Session not found'}), 404
+    
+    db.session.delete(session)
+    db.session.commit()
+    
+    return jsonify({'message': 'Session deleted successfully'}), 200
 
 
 @bp.route('/stats', methods=['GET'])

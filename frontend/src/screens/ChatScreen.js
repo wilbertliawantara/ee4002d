@@ -9,8 +9,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import { llmAPI } from '../services/api';
+import { validateChatMessage, sanitizeText } from '../utils/validation';
+import { useFocusEffect } from '@react-navigation/native';
 
 export default function ChatScreen() {
   const [messages, setMessages] = useState([]);
@@ -19,9 +22,12 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(false);
   const flatListRef = useRef(null);
 
-  useEffect(() => {
-    loadHistory();
-  }, []);
+  // Refresh chat history every time screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      loadHistory();
+    }, [])
+  );
 
   const loadHistory = async () => {
     try {
@@ -33,11 +39,18 @@ export default function ChatScreen() {
   };
 
   const sendMessage = async () => {
-    if (!inputText.trim()) return;
+    // Validate message
+    const validation = validateChatMessage(inputText);
+    if (!validation.valid) {
+      Alert.alert('Validation Error', validation.error);
+      return;
+    }
+
+    const sanitized = sanitizeText(inputText.trim());
 
     const userMessage = {
       role: 'user',
-      content: inputText,
+      content: sanitized,
       timestamp: new Date().toISOString(),
     };
 
@@ -46,7 +59,7 @@ export default function ChatScreen() {
     setLoading(true);
 
     try {
-      const response = await llmAPI.chat(inputText, sessionId);
+      const response = await llmAPI.chat(sanitized, sessionId);
       
       if (!sessionId) {
         setSessionId(response.session_id);
@@ -87,11 +100,6 @@ export default function ChatScreen() {
       >
         {item.content}
       </Text>
-      {item.model && (
-        <Text style={styles.modelTag}>
-          {item.model === 'gemini-1.5-flash' ? '✨ FREE Gemini' : item.model}
-        </Text>
-      )}
     </View>
   );
 
@@ -104,7 +112,7 @@ export default function ChatScreen() {
       <View style={styles.header}>
         <Text style={styles.headerText}>💬 AI Fitness Coach</Text>
         <Text style={styles.headerSubtext}>
-          Powered by Google Gemini (FREE)
+          Your Personal Fitness Assistant
         </Text>
       </View>
 
